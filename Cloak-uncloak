@@ -625,6 +625,7 @@ Readonly my $SOURCE_ADDRESS_EXAMPLES =>
 
 if ( $action eq "list" ) {
     print_source_address( $ssh, $listname, $hostname_canonical );
+
 } else {
 
 }
