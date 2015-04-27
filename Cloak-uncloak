@@ -1,0 +1,638 @@
+#!/usr/bin/perl
+#
+# Configure block/unblock list interactively.
+#
+# Usage: Cloak-uncloak [options] [ip address / hackercracker]
+#
+# Options:
+#  -u | --username          Specify the username to login to LBA server.
+#  -x | --password          Specify the password to login to LBA server.
+#  -l | --list              Specify the list to show.
+#  -a | --add               Specify the list to add to.
+#  -d | --delete            Specify the list to delete from.
+#  -h | --help              Show help information.
+#
+# Examples:
+#  Cloak-uncloak
+#  Cloak-uncloak -l blacklist
+#  Cloak-uncloak -a whitelist 1.1.1.1
+#  Cloak-uncloak -a whitelist 1.1.1.1 2.2.2.2
+#  Cloak-uncloak -d whitelist 1.1.1.1
+#  Cloak-uncloak -a hackercrackerlist "Mozilla/5.0 (Windows NT 6.1; WOW64)"
+#
+
+use strict;
+use warnings;
+
+use lib '/nas/reg/lib/perl';
+use lib '/nas/utl/lib/perl';
+#use lib '/nas/home/minjzhang/ops/util/lib';
+
+use Readonly;
+use Getopt::Long;
+use Net::SSH::Expect;
+use Term::ANSIColor;
+
+# Get options
+my $show_usage = qw{};
+my $show_verbose = qw{};
+my $lba_username = qw{};
+my $lba_password = qw{};
+my $list_listname = qw{};
+my $add_listname = qw{};
+my $del_listname = qw{};
+my $ip_address = qw{};
+my $options_okay = GetOptions (
+   'u|username=s' => \$lba_username,
+   'x|password=s' => \$lba_password,
+   'l|list=s'     => \$list_listname,
+   'a|add=s'      => \$add_listname,
+   'd|delete=s'   => \$del_listname,
+   'v|verbose'    => \$show_verbose,
+   'h|help'       => \$show_usage,
+);
+
+our $lba_version = "10";
+
+our %lba_ip_name = (
+    '10.80.81.17' => "srwp01lba040/041",
+    '10.80.81.9' => "srwp01lba043/044",
+    '10.80.81.10' => "srwp01lba045/046",
+);
+
+our @error_logs = ();
+our $lba_or_jfw = "lba";
+
+foreach my $rest_arg ( @ARGV ) {
+    $rest_arg = "\"$rest_arg\"";
+    $ip_address .= $rest_arg . " ";
+}
+$ip_address =~ s/ $// if defined $ip_address;
+@ARGV = qw{};
+
+#
+# Signal Handler
+#
+$SIG{'INT'} = \&sigIntHandler;
+
+#
+# Clean up and exit when catch SIGINT(2)
+#
+sub sigIntHandler {
+    exit 1;
+}
+
+if ( $show_usage ) {
+   usage();
+   exit 0;
+}
+
+#
+# Usage
+#
+sub usage {
+   print <<END_OF_HELP
+
+-------------------------------------------------------------------
+| Configure block/unblock list interactively.                     |
+| Usage: Cloak-Uncloak [options]                                  |
+| Options:                                                        |
+-------------------------------------------------------------------
+Usage: Cloak-uncloak [options] [ip address / hackercracker]
+
+Options:
+ -u | --username          Specify the username to login to LBA server.
+ -x | --password          Specify the password to login to LBA server.
+ -l | --list              Specify the list to show.
+ -a | --add               Specify the list to add to.
+ -d | --delete            Specify the list to delete from.
+ -h | --help              Show help information.
+
+Examples:
+ Cloak-uncloak
+ Cloak-uncloak -l blacklist
+ Cloak-uncloak -a whitelist 1.1.1.1
+ Cloak-uncloak -a whitelist 1.1.1.1 2.2.2.2
+ Cloak-uncloak -d whitelist 1.1.1.1
+ Cloak-uncloak -a hackercrackerlist "Mozilla/5.0 (Windows NT 6.1; WOW64)"
+
+END_OF_HELP
+}
+
+#
+# Login to ssh
+#
+sub login_ssh {
+    my ( $hostname, $username, $password ) = @_;
+
+    my $ssh = Net::SSH::Expect->new(
+        host => "$hostname",
+        user => "$username",
+        raw_pty => 1
+    );
+
+    my $prompt = "[Pp]assword";
+    $ssh->run_ssh();
+    $ssh->waitfor('qr/\(yes\/no\)\?$/',2);
+    $ssh->send("yes\n");
+    $ssh->waitfor('qr/$prompt:\s*$/',5);
+    $ssh->send("$password\n");
+    my $login_welcome = $ssh->exec("show sys version");
+
+    if ( not defined $login_welcome or $login_welcome !~ m/Last login/ ) {
+        die "Login has failed. No output." if not defined $login_welcome;
+        die "Login has failed. Login output was $login_welcome";
+    }
+
+    return $ssh;
+}
+
+#
+# Close ssh connection
+#
+sub close_ssh {
+    my ( $ssh ) = @_;
+    $ssh->close();
+}
+
+#
+# Execute command via ssh mutely
+#
+sub mute_execute_ssh {
+    my ( $ssh, $command ) = @_;
+    my $output = $ssh->exec($command);
+    my @original_outputs = split(/\n/, $output);
+    my @outputs;
+    foreach my $line ( @original_outputs ) {
+        if ( $line !~ /tmos/ ) {
+            chomp $line;
+            push(@outputs, $line);
+        }
+    }
+    return @outputs;
+}
+
+#
+# Execute command via ssh
+#
+sub execute_ssh {
+    my ( $ssh, $command ) = @_;
+    my @outputs = mute_execute_ssh( $ssh, $command );
+    print join "\n", @outputs;
+}
+
+#
+# Show current list
+#
+sub print_list {
+    my ( $ssh, $listname, $hostname ) = @_;
+    my $cmd = "list ltm data-group $listname records";
+    $cmd = "list ltm data-group internal $listname records" if $lba_version eq "11";
+    my @outputs = mute_execute_ssh( $ssh, "$cmd" );
+    my @ip_addresses;
+    foreach my $line ( @outputs ) {
+        if ( $line =~ /{ }/ ) {
+            $line =~ s/^\s*(.*)\s*{ }\s*$/$1/;
+            push( @ip_addresses, $line );
+        }
+    }
+    if ( defined $ip_addresses[0] ) {
+        print "\nCurrent $listname on [$lba_ip_name{ $hostname }]:\n";
+        print join "\n", @ip_addresses;
+        print "\n";
+    } else {
+        print "$listname is empty.\n";
+    }
+}
+
+#
+# Show current source address
+#
+sub print_source_address {
+    my ( $ssh, $policy, $hostname ) = @_;
+    my $cmd = "show security policies from-zone Internet to-zone DMZ-Pub policy-name $policy detail | no-more";
+    my @outputs = mute_execute_ssh( $ssh, "$cmd" );
+    my @source_addresses;
+    my $in_source_section = 0;
+    foreach my $line ( @outputs ) {
+        if ( $in_source_section ) {
+            push( @source_addresses, $line );
+        }
+        if ( $line =~ /^\s*Source addresses:\s*$/ ) {
+            $in_source_section = 1;
+        }
+    }
+    if ( defined $source_addresses[0] ) {
+        print "\nCurrent $listname on [$lba_ip_name{ $hostname }]:\n";
+        print join "\n", @ip_addresses;
+        print "\n";
+    } else {
+        print "$listname is empty.\n";
+    }
+
+}
+
+#
+# Get current timestamp.
+#
+sub get_current_time {
+    my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) = localtime(time);
+    my $nice_timestamp = sprintf( "%04d-%02d-%02d %02d:%02d:%02d",
+                            $year+1900, $mon+1, $mday, $hour, $min, $sec);
+    return $nice_timestamp;
+}
+
+#
+# Write to log file.
+#
+sub write_log {
+    my ( $string ) = @_;
+    Readonly my $LOG_PATH => '/nas/utl/tools/Cloak-uncloak.log';
+    open LOG_FH, ">>$LOG_PATH" or die "Unable to open file: $LOG_PATH";
+    print LOG_FH $string;
+    close LOG_FH;
+}
+
+#
+# Get username and password.
+#
+sub get_username_password {
+    my ( $lba_username, $lba_password ) = @_;
+
+    if ( not defined $lba_username ) {
+        print "Username: ";
+        $lba_username = <>;
+        chomp $lba_username;
+    }
+    if ( not defined $lba_password ) {
+        print "Password: ";
+        system("stty -echo");
+        $lba_password = <>;
+        chomp $lba_password;
+        system("stty echo");
+        print "\n";
+    }
+
+    return ( $lba_username, $lba_password );
+}
+
+sub get_lba_jfw_server {
+    print '         |\                     /)
+       /\_\\\\__               (_//
+      |   `>\-`     _._       //`)
+       \ /` \\\\  _.-`:::`-._  //
+        `    \|`    :::    `|/
+              |     :::     |
+              |.....:::.....|
+              |:::::::::::::|
+              |     :::     |
+              \     :::     /
+               \    :::    /
+                `-. ::: .-`
+                 //`:::`\\\\
+                //   `   \\\\
+               |/         \\\\
+
+   Your operation is valuable to STUBHUB!
+
+';
+    print color 'blue bold';
+    print '          Network Operation Center
+
+';
+    print color 'reset';
+    print "Enter the network gear you want to choose:\n";
+    print color 'bold';
+    print "F5 section:\n";
+    print color 'reset';
+    print "1. srwp01lba040/041 (10.80.81.17)
+2. srwp01lba043/044 (10.80.81.9)
+3. srwp01lba045/046 (10.80.81.10)
+4. srwp01lba043/044/045/046 sync (10.80.81.9, 10.80.81.10)
+";
+    print color 'bold';
+    print "\nFirewall section:\n";
+    print color 'reset';
+    print "5. srwd00jfw040 (srwp01jfw040/041 coming soon)
+
+q. quit
+> ";
+    while (1) {
+        my $lba_server_choose = <>;
+        chomp $lba_server_choose;
+        if ( $lba_server_choose eq "1" ) {
+            return "10.80.81.17";
+        } elsif ( $lba_server_choose eq "2" ) {
+            $lba_version = 11;
+            return "10.80.81.9";
+        } elsif ( $lba_server_choose eq "3" ) {
+            $lba_version = 11;
+            return "10.80.81.10";
+        } elsif ( $lba_server_choose eq "4" ) {
+            $lba_version = 11;
+            return "10.80.81.9,10.80.81.10";
+        } elsif ( $lba_server_choose eq "5" ) {
+            $lba_or_jfw = "jfw";
+            return "10.80.11.5";
+        } elsif ( $lba_server_choose =~ /^\s*q\s*$/i ) {
+            exit 1;
+        } else {
+            print "Enter 'q' to quit.\n";
+        }
+        print "> ";
+    }
+}
+
+# Get add list command.
+sub get_add_list_command {
+    my ( $listname, $ip_address, $lba_version ) = @_;
+    my $command = "modify ltm data-group $listname records add {$ip_address}";
+    $command = "modify ltm data-group internal $listname records add {$ip_address}" if $lba_version eq "11";
+    return $command;
+}
+
+# Add IPs to list.
+sub do_list_command {
+    my ( $ssh, $command, $listname, $hostname ) = @_;
+    my @outputs = mute_execute_ssh($ssh, $command);
+    my $error_log = "";
+    foreach my $output_line ( @outputs ) {
+        if ( $output_line =~ /already exists/ or $output_line =~ /was not found/ ) {
+            $error_log = "ERROR: $output_line on [$hostname].\n";
+        }
+    }
+    print_list( $ssh, $listname, $hostname );
+    return $error_log;
+}
+
+# Get delete list command.
+sub get_del_list_command {
+    my ( $listname, $ip_address, $lba_version ) = @_;
+    my $command = "modify ltm data-group $listname records delete {$ip_address}";
+    $command = "modify ltm data-group internal $listname records delete {$ip_address}" if $lba_version eq "11";
+    return $command;
+}
+
+# Sync the same command to slave hosts if necessary.
+sub sync_command_to_slave_servers {
+    my ( $lba_username, $lba_password, $command, $listname, $ip_address, $add_del, $to_from, @lba_slave_hosts ) = @_;
+    foreach my $lba_slave_host ( @lba_slave_hosts ) {
+        my $ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password );
+        my $error = do_list_command( $ssh, $command, $listname, $lba_slave_host );
+        push( @error_logs, $error ) if ( $error ne "" );
+        write_log( get_current_time() . " [$lba_slave_host] $lba_username $add_del [$ip_address] $to_from [$listname] (sync).\n");
+    }
+}
+
+#
+# Main
+#
+
+Readonly my $TMSH_EXEC => 'tmsh';
+my $hostname_canonical = get_lba_jfw_server();
+
+if ( $lba_or_jfw eq "lba" ) {
+# start of lba section
+
+my @lba_slave_hosts;
+if ( $hostname_canonical =~ /,/ ) {
+    @lba_slave_hosts = split( /,/, $hostname_canonical );
+    $hostname_canonical = $lba_slave_hosts[0];
+    splice @lba_slave_hosts, 0, 1;
+}
+
+if ( not defined $list_listname and not defined $add_listname and not defined $del_listname ) {
+print "-------------------------------------------------------------------
+| The script helps to configure block/unblock list interactively. |
+-------------------------------------------------------------------
+";
+
+( $lba_username, $lba_password ) = get_username_password( $lba_username, $lba_password );
+
+my $ssh = login_ssh( $hostname_canonical, $lba_username, $lba_password );
+
+while (1) {
+
+# Choose list
+print "Enter the list you want to configure:
+1. blacklist
+2. whitelist
+3. hackercrackerlist
+b. back
+> ";
+my $listname = <>;
+chomp $listname;
+
+if ( $listname eq "b" ) {
+    close_ssh($ssh);
+    exit 0;
+}
+if ( $listname !~ /[123]/ ) {
+    usage();
+    next;
+} else {
+    $listname =~ s/\s*(\S*)\s*/$1/;
+    if ( $listname eq "1" ) {
+        $listname = "blacklist";
+    } elsif ( $listname eq "2" ) {
+        $listname = "whitelist";
+    } elsif ( $listname eq "3" ) {
+        $listname = "hackercrackerlist";
+    }
+}
+
+# Choose action
+print "Enter the action you want to do for $listname:
+1. list
+2. add
+3. delete
+b. back
+> ";
+my $action = <>;
+chomp $action;
+if ( $action eq "b" ) {
+    close_ssh($ssh);
+    exit 0;
+}
+if ( $action !~ /[123]/ ) {
+    usage();
+    next;
+} else {
+    $action =~ s/\s*(\S*)\s*/$1/;
+    if ( $action eq "1" ) {
+        $action = "list";
+    } elsif ( $action eq "2" ) {
+        $action = "add";
+    } elsif ( $action eq "3" ) {
+        $action = "delete";
+    }
+}
+
+# Do action
+Readonly my $IP_EXAMPLES =>
+'-------------------------------------------------------------------
+| 1.1.1.1                                                         |
+| 1.1.1.1 2.2.2.2                                                 |
+| "Mozilla/5.0 (Windows NT 6.1; WOW64)"                           |
+-------------------------------------------------------------------';
+
+if ( $action eq "list" ) {
+    print_list( $ssh, $listname, $hostname_canonical );
+    foreach my $lba_slave_host ( @lba_slave_hosts ) {
+        my $slave_ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password );
+        print_list( $slave_ssh, $listname, $lba_slave_host );
+    }
+} else {
+    $ip_address = qw{};
+    my $command = qw{};
+    my $confirm = qw{};
+    if ( $action eq "add" ) {
+        print "Enter the IP address you want to $action to $listname. For example:\n";
+        print "$IP_EXAMPLES\n";
+        print "> ";
+        $ip_address = <>;
+        chomp $ip_address;
+        $ip_address =~ s/^\s*(.*)\s*$/$1/;
+        $command = get_add_list_command( $listname, $ip_address, $lba_version );
+        print "$command\n";
+        print "Please confirm to execute the command above (y/n): ";
+        $confirm = <>;
+        if ( $confirm =~ /y/i ) {
+            my $error = do_list_command( $ssh, $command, $listname, $hostname_canonical );
+            push( @error_logs, $error ) if ( $error ne "" );
+            write_log( get_current_time() . " [$hostname_canonical] $lba_username add [$ip_address] to [$listname].\n");
+            sync_command_to_slave_servers( $lba_username, $lba_password, $command, $listname, $ip_address, "add", "to", @lba_slave_hosts );
+            print "\n";
+            foreach my $error_line ( @error_logs ) {
+                print $error_line;
+            }
+            print "\n";
+            @error_logs = ();
+        }
+    } elsif ( $action eq "delete" ) {
+        print "Enter the IP address you want to $action from $listname. For example:\n";
+        print "$IP_EXAMPLES\n";
+        print_list( $ssh, $listname, $hostname_canonical );
+        foreach my $lba_slave_host ( @lba_slave_hosts ) {
+            my $slave_ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password );
+            print_list( $slave_ssh, $listname, $lba_slave_host );
+        }
+        print "> ";
+        $ip_address = <>;
+        chomp $ip_address;
+        $ip_address =~ s/^\s*(.*)\s*$/$1/;
+        $command = get_del_list_command( $listname, $ip_address, $lba_version );
+        print "$command\n";
+        print "Please confirm to execute the command above (y/n): ";
+        $confirm = <>;
+        if ( $confirm =~ /y/i ) {
+            my $error = do_list_command( $ssh, $command, $listname, $hostname_canonical );
+            push( @error_logs, $error ) if ( $error ne "" );
+            write_log( get_current_time() . " [$hostname_canonical] $lba_username delete [$ip_address] from [$listname].\n");
+            sync_command_to_slave_servers( $lba_username, $lba_password, $command, $listname, $ip_address, "delete", "from", @lba_slave_hosts );
+            print "\n";
+            foreach my $error_line ( @error_logs ) {
+                print $error_line;
+            }
+            print "\n";
+            @error_logs = ();
+
+        }
+    }
+}
+
+} # end of while loop
+
+close_ssh( $ssh );
+
+} else {
+
+    if ( defined $list_listname && not defined $add_listname && not defined $del_listname ) {
+        ( $lba_username, $lba_password ) = get_username_password( $lba_username, $lba_password );
+        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password);
+        print_list( $ssh, $list_listname );
+        close_ssh($ssh);
+    } elsif ( defined $add_listname && not defined $del_listname && not defined $list_listname ) {
+        if ( not defined $ip_address ) {
+            print "ERROR: ip address or hackercrakcer must be specified when adding to list.\n";
+            exit 1;
+        }
+        ( $lba_username, $lba_password ) = get_username_password( $lba_username, $lba_password );
+        my $command = get_add_list_command( $add_listname, $ip_address, $lba_version );
+        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password);
+        do_list_command( $ssh, $command, $add_listname, $hostname_canonical );
+        write_log( get_current_time() . " [$hostname_canonical] $lba_username add [$ip_address] to [$add_listname].\n");
+        close_ssh($ssh);
+    } elsif ( defined $del_listname && not defined $add_listname && not defined $list_listname ) {
+        if ( not defined $ip_address ) {
+            print "ERROR: ip address or hackercrakcer must be specified when deleting from list.\n";
+            exit 1;
+        }
+        ( $lba_username, $lba_password ) = get_username_password( $lba_username, $lba_password );
+        my $command = get_del_list_command( $del_listname, $ip_address, $lba_version );
+        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password);
+        do_list_command( $ssh, $command, $del_listname, $hostname_canonical );
+        write_log( get_current_time() . " [$hostname_canonical] $lba_username delete [$ip_address] from [$del_listname].\n");
+        close_ssh($ssh);
+    } else {
+        print "ERROR: Only one option can be defined '-l', '-a' and '-d'.\n";
+        exit 1;
+    }
+}
+
+} # end of lba section
+else {
+# start of jfw section
+
+my ( $jfw_username, $jfw_password ) = get_username_password( $lba_username, $lba_password );
+my $ssh = login_ssh( $hostname_canonical, $jfw_username, $jfw_password );
+while (1) {
+
+# Choose action
+print "Enter the action you want to do for source address of policy ping:
+1. list
+2. add
+3. delete
+b. back
+> ";
+my $action = <>;
+chomp $action;
+if ( $action eq "b" ) {
+    close_ssh($ssh);
+    exit 0;
+}
+if ( $action !~ /[123]/ ) {
+    usage();
+    next;
+} else {
+    $action =~ s/\s*(\S*)\s*/$1/;
+    if ( $action eq "1" ) {
+        $action = "list";
+    } elsif ( $action eq "2" ) {
+        $action = "add";
+    } elsif ( $action eq "3" ) {
+        $action = "delete";
+    }
+}
+
+# Do action
+Readonly my $SOURCE_ADDRESS_EXAMPLES =>
+'-------------------------------------------------------------------
+| apigee1: 107.20.65.13                                           |
+| apigee2: 107.20.65.12/32                                        |
+| Ebay-Public 216.113.168.0/24                                    |
+-------------------------------------------------------------------';
+
+if ( $action eq "list" ) {
+    print_source_address( $ssh, $listname, $hostname_canonical );
+} else {
+
+}
+
+
+} # end of while loop in jfw
+
+
+} # end of jfw section
+
+exit 0;
