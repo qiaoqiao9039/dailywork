@@ -123,8 +123,8 @@ END_OF_HELP
 # Login to ssh
 #
 sub login_ssh {
-    my ( $hostname, $username, $password ) = @_;
-
+    my ( $hostname, $username, $password, $lba_or_jfw ) = @_;
+    if ( $lba_or_jfw eq "lba" ) {
     my $ssh = Net::SSH::Expect->new(
         host => "$hostname",
         user => "$username",
@@ -145,6 +145,26 @@ sub login_ssh {
     }
 
     return $ssh;
+    }
+    else{
+    my $ssh = Net::SSH::Expect->new(
+        host => "$hostname",
+        user => "$username",
+        raw_pty => 1
+    );
+
+    my $prompt = "[Pp]assword";
+    $ssh->run_ssh();
+    $ssh->waitfor('qr/$prompt:\s*$/',5);
+    $ssh->send("$password\n");
+    my $login_welcome = $ssh->exec("show version");
+    
+    if ( not defined $login_welcome ) {
+        die "Login has failed. No output." if not defined $login_welcome;
+    }
+
+    return $ssh;
+    }
 }
 
 #
@@ -214,6 +234,8 @@ sub print_source_address {
     my @outputs = mute_execute_ssh( $ssh, "$cmd" );
     my @source_addresses;
     my $in_source_section = 0;
+    my $listname = 0;
+    my @ip_addresses;
     foreach my $line ( @outputs ) {
         if ( $in_source_section ) {
             push( @source_addresses, $line );
@@ -230,6 +252,26 @@ sub print_source_address {
         print "$listname is empty.\n";
     }
 
+}
+
+#
+# show policy details
+#
+sub print_policy {
+    my ( $ssh, $policy, $hostname ) = @_;
+    print "$ssh\n";
+    my $cmd = "show security policies from-zone DMZ-BE-PE to-zone TRANSIT policy-name $policy detail | no-more";
+    my @outputs = mute_execute_ssh( $ssh, "$cmd" );
+    foreach my $line ( @outputs ) {
+        print "$line\n";
+    }
+}
+
+#
+# add source address into policy
+#
+sub add_source_address {
+    
 }
 
 #
@@ -313,7 +355,7 @@ sub get_lba_jfw_server {
     print color 'bold';
     print "\nFirewall section:\n";
     print color 'reset';
-    print "5. srwd00jfw040 (srwp01jfw040/041 coming soon)
+    print "5. slcd000jfw001 (srwp01jfw040/041 coming soon)
 
 q. quit
 > ";
@@ -333,7 +375,7 @@ q. quit
             return "10.80.81.9,10.80.81.10";
         } elsif ( $lba_server_choose eq "5" ) {
             $lba_or_jfw = "jfw";
-            return "10.80.11.5";
+            return "10.131.70.1";
         } elsif ( $lba_server_choose =~ /^\s*q\s*$/i ) {
             exit 1;
         } else {
@@ -377,7 +419,7 @@ sub get_del_list_command {
 sub sync_command_to_slave_servers {
     my ( $lba_username, $lba_password, $command, $listname, $ip_address, $add_del, $to_from, @lba_slave_hosts ) = @_;
     foreach my $lba_slave_host ( @lba_slave_hosts ) {
-        my $ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password );
+        my $ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password, $lba_or_jfw );
         my $error = do_list_command( $ssh, $command, $listname, $lba_slave_host );
         push( @error_logs, $error ) if ( $error ne "" );
         write_log( get_current_time() . " [$lba_slave_host] $lba_username $add_del [$ip_address] $to_from [$listname] (sync).\n");
@@ -409,7 +451,7 @@ print "-------------------------------------------------------------------
 
 ( $lba_username, $lba_password ) = get_username_password( $lba_username, $lba_password );
 
-my $ssh = login_ssh( $hostname_canonical, $lba_username, $lba_password );
+my $ssh = login_ssh( $hostname_canonical, $lba_username, $lba_password, $lba_or_jfw );
 
 while (1) {
 
@@ -479,7 +521,7 @@ Readonly my $IP_EXAMPLES =>
 if ( $action eq "list" ) {
     print_list( $ssh, $listname, $hostname_canonical );
     foreach my $lba_slave_host ( @lba_slave_hosts ) {
-        my $slave_ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password );
+        my $slave_ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password, $lba_or_jfw );
         print_list( $slave_ssh, $listname, $lba_slave_host );
     }
 } else {
@@ -514,7 +556,7 @@ if ( $action eq "list" ) {
         print "$IP_EXAMPLES\n";
         print_list( $ssh, $listname, $hostname_canonical );
         foreach my $lba_slave_host ( @lba_slave_hosts ) {
-            my $slave_ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password );
+            my $slave_ssh = login_ssh( $lba_slave_host, $lba_username, $lba_password, $lba_or_jfw );
             print_list( $slave_ssh, $listname, $lba_slave_host );
         }
         print "> ";
@@ -549,7 +591,7 @@ close_ssh( $ssh );
 
     if ( defined $list_listname && not defined $add_listname && not defined $del_listname ) {
         ( $lba_username, $lba_password ) = get_username_password( $lba_username, $lba_password );
-        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password);
+        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password, $lba_or_jfw);
         print_list( $ssh, $list_listname );
         close_ssh($ssh);
     } elsif ( defined $add_listname && not defined $del_listname && not defined $list_listname ) {
@@ -559,7 +601,7 @@ close_ssh( $ssh );
         }
         ( $lba_username, $lba_password ) = get_username_password( $lba_username, $lba_password );
         my $command = get_add_list_command( $add_listname, $ip_address, $lba_version );
-        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password);
+        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password, $lba_or_jfw);
         do_list_command( $ssh, $command, $add_listname, $hostname_canonical );
         write_log( get_current_time() . " [$hostname_canonical] $lba_username add [$ip_address] to [$add_listname].\n");
         close_ssh($ssh);
@@ -570,7 +612,7 @@ close_ssh( $ssh );
         }
         ( $lba_username, $lba_password ) = get_username_password( $lba_username, $lba_password );
         my $command = get_del_list_command( $del_listname, $ip_address, $lba_version );
-        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password);
+        my $ssh = login_ssh($hostname_canonical, $lba_username, $lba_password, $lba_or_jfw);
         do_list_command( $ssh, $command, $del_listname, $hostname_canonical );
         write_log( get_current_time() . " [$hostname_canonical] $lba_username delete [$ip_address] from [$del_listname].\n");
         close_ssh($ssh);
@@ -585,14 +627,14 @@ else {
 # start of jfw section
 
 my ( $jfw_username, $jfw_password ) = get_username_password( $lba_username, $lba_password );
-my $ssh = login_ssh( $hostname_canonical, $jfw_username, $jfw_password );
+my $ssh = login_ssh( $hostname_canonical, $jfw_username, $jfw_password, $lba_or_jfw );
 while (1) {
 
 # Choose action
 print "Enter the action you want to do for source address of policy ping:
 1. list
 2. add
-3. delete
+3. delete( Coming soon )
 b. back
 > ";
 my $action = <>;
@@ -624,12 +666,20 @@ Readonly my $SOURCE_ADDRESS_EXAMPLES =>
 -------------------------------------------------------------------';
 
 if ( $action eq "list" ) {
-    print_source_address( $ssh, $listname, $hostname_canonical );
-
-} else {
-
+    print_policy( $ssh, "ping", $hostname_canonical );
+} 
+else {
+    if ( $action eq "add" ) {
+        add_source_address( );    
+    }
+    elsif ( $action eq "back" ) {
+        print "Not ready, closing the session.\n"
+        close_ssh($ssh);
+        exit 0;
+    }
 }
 
+close_ssh($ssh);
 
 } # end of while loop in jfw
 
