@@ -666,11 +666,11 @@ Readonly my $SOURCE_ADDRESS_EXAMPLES =>
 -------------------------------------------------------------------';
 
 if ( $action eq "list" ) {
-    print_policy( $ssh, "ping", $hostname_canonical );
+    print_policy( $ssh, "ping", $hostname_canonical ); # change to print source address
 } 
 else {
     if ( $action eq "add" ) {
-        add_source_address( );    
+        add_source_address( );  #TBD 
     }
     elsif ( $action eq "back" ) {
         print "Not ready, closing the session.\n"
