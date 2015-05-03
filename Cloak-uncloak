@@ -180,8 +180,6 @@ sub close_ssh {
 #
 sub mute_execute_ssh {
     my ( $ssh, $command ) = @_;
-    #$command=$command.";".$cmd2;
-    print "$command\n";
     my $output = $ssh->exec($command);
     my @original_outputs = split(/\n/, $output);
     my @outputs;
@@ -275,17 +273,35 @@ sub print_policy {
 #
 sub add_source_address {
     my ( $ssh, $source_address, $hostname ) = @_;
+    my $current_time=get_current_time();
     print "$ssh\n";
+    print "$current_time\n";
     my $cmd1 = "configure";
-    my $cmd2 = "show | compare";
-    $ssh->exec("$cmd1");
-    my @outputs=$ssh->exec("$cmd2");
-    #my @outputs = system ( "ssh loqiao\@slcd000jfw001.stubcorp.com '$cmd1;$cmd2'" );
-    #my @outputs = mute_execute_ssh( $ssh, "$cmd1" );
+    my $cmd2 = "set security zones security-zone DMZ-BE-PE address-book address test 10.131.91.26/32";
+    #my $cmd2 = "delete security zones security-zone DMZ-BE-PE address-book address test";
+    my $cmd3 = "show security policies from-zone DMZ-BE-PE to-zone TRANSIT policy ping";
+    my $cmd4 = "show | compare";
+    my $cmd5 = "commit";
+    my @outputs = $ssh->exec($cmd1);
+foreach my $line ( @outputs ) {
+        print "$line\n";
+    }
+
+    @outputs = $ssh->exec($cmd3);
     foreach my $line ( @outputs ) {
         print "$line\n";
     }
-    
+    @outputs = $ssh->exec($cmd5);
+    foreach my $line ( @outputs ) {
+        print "$line\n";
+    }
+    #$ssh->exec($cmd5);
+    #my @outputs = $ssh->exec($cmd5);
+    #my @outputs = system ( "ssh loqiao\@slcd000jfw001.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );
+    #my @outputs = mute_execute_ssh( $ssh, "$cmd5" );
+    #foreach my $line ( @outputs ) {
+    #    print "$line\n";
+    #}
 }
 
 #
@@ -293,7 +309,7 @@ sub add_source_address {
 #
 sub get_current_time {
     my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) = localtime(time);
-    my $nice_timestamp = sprintf( "%04d-%02d-%02d %02d:%02d:%02d",
+    my $nice_timestamp = sprintf( "%04d-%02d-%02d-%02d:%02d:%02d",
                             $year+1900, $mon+1, $mday, $hour, $min, $sec);
     return $nice_timestamp;
 }
@@ -680,8 +696,8 @@ Readonly my $SOURCE_ADDRESS_EXAMPLES =>
 -------------------------------------------------------------------';
 
 if ( $action eq "list" ) {
-    #print_policy( $ssh, "ping", $hostname_canonical ); # change to print source address
-    print_source_address( $ssh, "ping", $hostname_canonical ); # change to print source address
+    print_policy( $ssh, "ping", $hostname_canonical ); # change to print source address
+    #print_source_address( $ssh, "ping", $hostname_canonical ); # change to print source address
 } 
 else {
     if ( $action eq "add" ) {
