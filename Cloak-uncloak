@@ -180,6 +180,8 @@ sub close_ssh {
 #
 sub mute_execute_ssh {
     my ( $ssh, $command ) = @_;
+    #$command=$command.";".$cmd2;
+    print "$command\n";
     my $output = $ssh->exec($command);
     my @original_outputs = split(/\n/, $output);
     my @outputs;
@@ -230,7 +232,8 @@ sub print_list {
 #
 sub print_source_address {
     my ( $ssh, $policy, $hostname ) = @_;
-    my $cmd = "show security policies from-zone Internet to-zone DMZ-Pub policy-name $policy detail | no-more";
+    my $cmd = "show security policies from-zone DMZ-BE-PE to-zone TRANSIT policy-name $policy detail | no-more";
+    #my $cmd = "show security policies from-zone Internet to-zone DMZ-Pub policy-name $policy detail | no-more";
     my @outputs = mute_execute_ssh( $ssh, "$cmd" );
     my @source_addresses;
     my $in_source_section = 0;
@@ -271,6 +274,16 @@ sub print_policy {
 # add source address into policy
 #
 sub add_source_address {
+    my ( $ssh, $source_address, $hostname ) = @_;
+    print "$ssh\n";
+    my $cmd1 = "configure";
+    my $cmd2 = "show version";
+    #my @outputs = $ssh->exec("$cmd1;$cmd2");
+    my @outputs = system ( "ssh loqiao\@slcd000jfw001.stubcorp.com '$cmd1;$cmd2'" );
+    #my @outputs = mute_execute_ssh( $ssh, "$cmd1" );
+    foreach my $line ( @outputs ) {
+        print "$line\n";
+    }
     
 }
 
@@ -666,14 +679,15 @@ Readonly my $SOURCE_ADDRESS_EXAMPLES =>
 -------------------------------------------------------------------';
 
 if ( $action eq "list" ) {
-    print_policy( $ssh, "ping", $hostname_canonical ); # change to print source address
+    #print_policy( $ssh, "ping", $hostname_canonical ); # change to print source address
+    print_source_address( $ssh, "ping", $hostname_canonical ); # change to print source address
 } 
 else {
     if ( $action eq "add" ) {
-        add_source_address( );  #TBD 
+        add_source_address( $ssh, "ping", $hostname_canonical );  #TBD 
     }
     elsif ( $action eq "back" ) {
-        print "Not ready, closing the session.\n"
+        print "Not ready, closing the session.\n";
         close_ssh($ssh);
         exit 0;
     }
