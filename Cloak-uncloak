@@ -277,9 +277,10 @@ sub add_source_address {
     my ( $ssh, $source_address, $hostname ) = @_;
     print "$ssh\n";
     my $cmd1 = "configure";
-    my $cmd2 = "show version";
-    #my @outputs = $ssh->exec("$cmd1;$cmd2");
-    my @outputs = system ( "ssh loqiao\@slcd000jfw001.stubcorp.com '$cmd1;$cmd2'" );
+    my $cmd2 = "show | compare";
+    $ssh->exec("$cmd1");
+    my @outputs=$ssh->exec("$cmd2");
+    #my @outputs = system ( "ssh loqiao\@slcd000jfw001.stubcorp.com '$cmd1;$cmd2'" );
     #my @outputs = mute_execute_ssh( $ssh, "$cmd1" );
     foreach my $line ( @outputs ) {
         print "$line\n";
