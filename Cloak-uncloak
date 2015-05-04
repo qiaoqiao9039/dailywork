@@ -260,8 +260,7 @@ sub print_source_address {
 #
 sub print_policy {
     my ( $ssh, $policy, $hostname ) = @_;
-    print "$ssh\n";
-    my $cmd = "show security policies from-zone DMZ-BE-PE to-zone TRANSIT policy-name $policy detail | no-more";
+    my $cmd = "show configuration firewall family inet filter block term 5 from source-address | no-more";
     my @outputs = mute_execute_ssh( $ssh, "$cmd" );
     foreach my $line ( @outputs ) {
         print "$line\n";
@@ -273,37 +272,32 @@ sub print_policy {
 #
 sub add_source_address {
     my ( $ssh, $source_address, $hostname ) = @_;
-    my $current_time=get_current_time();
-    print "$ssh\n";
-    print "$current_time\n";
     my $cmd1 = "configure";
-    my $cmd2 = "set security zones security-zone DMZ-BE-PE address-book address test 10.131.91.26/32";
-    #my $cmd2 = "delete security zones security-zone DMZ-BE-PE address-book address test";
-    my $cmd3 = "show security policies from-zone DMZ-BE-PE to-zone TRANSIT policy ping";
-    my $cmd4 = "show | compare";
-    my $cmd5 = "commit";
-    my @outputs = $ssh->exec($cmd1);
-foreach my $line ( @outputs ) {
-        print "$line\n";
-    }
-
-    @outputs = $ssh->exec($cmd3);
-    foreach my $line ( @outputs ) {
-        print "$line\n";
-    }
-    @outputs = $ssh->exec($cmd5);
-    foreach my $line ( @outputs ) {
-        print "$line\n";
-    }
-    #$ssh->exec($cmd5);
-    #my @outputs = $ssh->exec($cmd5);
-    #my @outputs = system ( "ssh loqiao\@slcd000jfw001.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );
-    #my @outputs = mute_execute_ssh( $ssh, "$cmd5" );
+    my $cmd2 = "set firewall family inet filter block term 5 from source-address $source_address/32";
+    my $cmd4 = "commit";
+    my $cmd5 = "exit";
+    #my @outputs = $ssh->exec($cmd1);foreach my $line ( @outputs ) {    print "$line\n";}
+    #@outputs = $ssh->exec($cmd2);foreach my $line ( @outputs ) {    print "$line\n";}
+    #@outputs = $ssh->exec($cmd4);foreach my $line ( @outputs ) {    print "$line\n";}
+    #@outputs = $ssh->exec($cmd5);foreach my $line ( @outputs ) {    print "$line\n";}
+    my @outputs = system ( "ssh test\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
     #foreach my $line ( @outputs ) {
     #    print "$line\n";
     #}
 }
 
+#
+# delete policy
+#
+sub delete_source_address {
+    my ( $ssh, $source_address, $hostname ) = @_;
+    my $cmd1 = "configure";
+    my $cmd2 = "delete firewall family inet filter block term 5 from source-address $source_address/32";
+    my $cmd4 = "commit";
+    my $cmd5 = "exit";
+    my @outputs = system ( "ssh test\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
+    
+}
 #
 # Get current timestamp.
 #
@@ -385,7 +379,7 @@ sub get_lba_jfw_server {
     print color 'bold';
     print "\nFirewall section:\n";
     print color 'reset';
-    print "5. slcd000jfw001 (srwp01jfw040/041 coming soon)
+    print "5. slcd000jfw041 (srwp01jfw040/041 coming soon)
 
 q. quit
 > ";
@@ -405,7 +399,7 @@ q. quit
             return "10.80.81.9,10.80.81.10";
         } elsif ( $lba_server_choose eq "5" ) {
             $lba_or_jfw = "jfw";
-            return "10.131.70.1";
+            return "10.131.76.5";
         } elsif ( $lba_server_choose =~ /^\s*q\s*$/i ) {
             exit 1;
         } else {
@@ -697,11 +691,13 @@ Readonly my $SOURCE_ADDRESS_EXAMPLES =>
 
 if ( $action eq "list" ) {
     print_policy( $ssh, "ping", $hostname_canonical ); # change to print source address
-    #print_source_address( $ssh, "ping", $hostname_canonical ); # change to print source address
 } 
 else {
     if ( $action eq "add" ) {
-        add_source_address( $ssh, "ping", $hostname_canonical );  #TBD 
+        add_source_address( $ssh, "9.9.9.9", $hostname_canonical );  #TBD 
+    }
+    elsif ( $action eq "delete" ) {
+        delete_source_address( $ssh, "9.9.9.9", $hostname_canonical );
     }
     elsif ( $action eq "back" ) {
         print "Not ready, closing the session.\n";
