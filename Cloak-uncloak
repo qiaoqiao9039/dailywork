@@ -261,42 +261,39 @@ sub print_source_address {
 sub print_policy {
     my ( $ssh, $policy, $hostname ) = @_;
     my $cmd = "show configuration firewall family inet filter block term 5 from source-address | no-more";
-    my @outputs = mute_execute_ssh( $ssh, "$cmd" );
+    my @outputs = mute_execute_ssh( $ssh, "$cmd" ); # related with user, test cannot show, jucao works fine.
     foreach my $line ( @outputs ) {
         print "$line\n";
     }
+
 }
 
 #
 # add source address into policy
 #
 sub add_source_address {
-    my ( $ssh, $source_address, $hostname ) = @_;
+    my ( $ssh, $source_address, $hostname, $username, $password ) = @_;
     my $cmd1 = "configure";
     my $cmd2 = "set firewall family inet filter block term 5 from source-address $source_address/32";
     my $cmd4 = "commit";
     my $cmd5 = "exit";
-    #my @outputs = $ssh->exec($cmd1);foreach my $line ( @outputs ) {    print "$line\n";}
+    #my @outputs = $ssh->send($cmd1);
     #@outputs = $ssh->exec($cmd2);foreach my $line ( @outputs ) {    print "$line\n";}
     #@outputs = $ssh->exec($cmd4);foreach my $line ( @outputs ) {    print "$line\n";}
     #@outputs = $ssh->exec($cmd5);foreach my $line ( @outputs ) {    print "$line\n";}
-    my @outputs = system ( "ssh test\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
-    #foreach my $line ( @outputs ) {
-    #    print "$line\n";
-    #}
+    my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
 }
 
 #
 # delete policy
 #
 sub delete_source_address {
-    my ( $ssh, $source_address, $hostname ) = @_;
+    my ( $ssh, $source_address, $hostname, $username, $password ) = @_;
     my $cmd1 = "configure";
     my $cmd2 = "delete firewall family inet filter block term 5 from source-address $source_address/32";
     my $cmd4 = "commit";
     my $cmd5 = "exit";
-    my @outputs = system ( "ssh test\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
-    
+    my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
 }
 #
 # Get current timestamp.
@@ -694,10 +691,10 @@ if ( $action eq "list" ) {
 } 
 else {
     if ( $action eq "add" ) {
-        add_source_address( $ssh, "9.9.9.9", $hostname_canonical );  #TBD 
+        add_source_address( $ssh, "9.9.9.9", $hostname_canonical, $jfw_username, $jfw_password );  #TBD 
     }
     elsif ( $action eq "delete" ) {
-        delete_source_address( $ssh, "9.9.9.9", $hostname_canonical );
+        delete_source_address( $ssh, "9.9.9.9", $hostname_canonical, $jfw_username, $jfw_password );
     }
     elsif ( $action eq "back" ) {
         print "Not ready, closing the session.\n";
