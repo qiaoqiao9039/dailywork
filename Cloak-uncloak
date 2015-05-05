@@ -260,7 +260,7 @@ sub print_source_address {
 #
 sub print_policy {
     my ( $ssh, $policy, $hostname ) = @_;
-    my $cmd = "show configuration firewall family inet filter block term 5 from source-address | no-more";
+    my $cmd = "show configuration firewall family inet filter block term 5 from source-address | match /";
     my @outputs = mute_execute_ssh( $ssh, "$cmd" ); # related with user, test cannot show, jucao works fine.
     foreach my $line ( @outputs ) {
         print "$line\n";
@@ -276,13 +276,8 @@ sub add_source_address {
     chomp $source_address; 
     my $cmd1 = "configure";
     my $cmd2 = "set firewall family inet filter block term 5 from source-address $source_address/32";
-    print "$cmd2\n";
     my $cmd4 = "commit";
     my $cmd5 = "exit";
-    #my @outputs = $ssh->send($cmd1);
-    #@outputs = $ssh->exec($cmd2);foreach my $line ( @outputs ) {    print "$line\n";}
-    #@outputs = $ssh->exec($cmd4);foreach my $line ( @outputs ) {    print "$line\n";}
-    #@outputs = $ssh->exec($cmd5);foreach my $line ( @outputs ) {    print "$line\n";}
     #my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
 }
 
@@ -691,18 +686,32 @@ Readonly my $SOURCE_ADDRESS_EXAMPLES =>
 
 my $source_address = 0;
 if ( $action eq "list" ) {
-    print_policy( $ssh, "block", $hostname_canonical ); # change to print source address
+    print_policy( $ssh, "block", $hostname_canonical );
 } 
 else {
     if ( $action eq "add" ) {
-        print "Source adress:";
+        print "Enter the IP address you want to $action. For example:\n";
+        print "$SOURCE_ADDRESS_EXAMPLES\n";
+        print "> ";
         $source_address = <>;
-        print "$source_address\n";
-        add_source_address( $ssh, $source_address, $hostname_canonical, $jfw_username, $jfw_password );  #TBD 
+        chomp $source_address;
+        if ( ( $source_address =~ /^([0-9]{1,3}\.?){4}$/ ) | ( $source_address =~ /^([0-9]{1,3}\.?){4}\/32$/ ) | ( $source_address =~ /^([0-9]{1,3}\.?){4}\/24$/ ) | ( $source_address =~ /^([0-9]{1,3}\.?){4}\/18$/ ) ){
+            print "$source_address\n";
+            add_source_address( $ssh, $source_address, $hostname_canonical, $jfw_username, $jfw_password ); 
+        }
+        elsif ( $source_address =~ /^([0-9]{1,3}\.?){4}\/0$/ ) {
+            print "Invalid IP\n";
+        }
+        else {
+            print "Invalid IP\n";
+        }
     }
     elsif ( $action eq "delete" ) {
-        print "Source adress:";
+        print "Enter the IP address you want to $action. For example:\n";
+        print "$SOURCE_ADDRESS_EXAMPLES\n";
+        print "> ";
         $source_address = <>;
+        chomp $source_address;
         delete_source_address( $ssh, $source_address, $hostname_canonical, $jfw_username, $jfw_password );
     }
     elsif ( $action eq "back" ) {
