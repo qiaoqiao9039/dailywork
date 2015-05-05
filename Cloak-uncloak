@@ -273,15 +273,17 @@ sub print_policy {
 #
 sub add_source_address {
     my ( $ssh, $source_address, $hostname, $username, $password ) = @_;
+    chomp $source_address; 
     my $cmd1 = "configure";
     my $cmd2 = "set firewall family inet filter block term 5 from source-address $source_address/32";
+    print "$cmd2\n";
     my $cmd4 = "commit";
     my $cmd5 = "exit";
     #my @outputs = $ssh->send($cmd1);
     #@outputs = $ssh->exec($cmd2);foreach my $line ( @outputs ) {    print "$line\n";}
     #@outputs = $ssh->exec($cmd4);foreach my $line ( @outputs ) {    print "$line\n";}
     #@outputs = $ssh->exec($cmd5);foreach my $line ( @outputs ) {    print "$line\n";}
-    my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
+    #my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd4;$cmd5;'" );#try to use sshpass
 }
 
 #
@@ -289,6 +291,7 @@ sub add_source_address {
 #
 sub delete_source_address {
     my ( $ssh, $source_address, $hostname, $username, $password ) = @_;
+    chomp $source_address;
     my $cmd1 = "configure";
     my $cmd2 = "delete firewall family inet filter block term 5 from source-address $source_address/32";
     my $cmd4 = "commit";
@@ -655,7 +658,7 @@ while (1) {
 print "Enter the action you want to do for source address of policy ping:
 1. list
 2. add
-3. delete( Coming soon )
+3. delete
 b. back
 > ";
 my $action = <>;
@@ -686,15 +689,21 @@ Readonly my $SOURCE_ADDRESS_EXAMPLES =>
 | Ebay-Public 216.113.168.0/24                                    |
 -------------------------------------------------------------------';
 
+my $source_address = 0;
 if ( $action eq "list" ) {
-    print_policy( $ssh, "ping", $hostname_canonical ); # change to print source address
+    print_policy( $ssh, "block", $hostname_canonical ); # change to print source address
 } 
 else {
     if ( $action eq "add" ) {
-        add_source_address( $ssh, "9.9.9.9", $hostname_canonical, $jfw_username, $jfw_password );  #TBD 
+        print "Source adress:";
+        $source_address = <>;
+        print "$source_address\n";
+        add_source_address( $ssh, $source_address, $hostname_canonical, $jfw_username, $jfw_password );  #TBD 
     }
     elsif ( $action eq "delete" ) {
-        delete_source_address( $ssh, "9.9.9.9", $hostname_canonical, $jfw_username, $jfw_password );
+        print "Source adress:";
+        $source_address = <>;
+        delete_source_address( $ssh, $source_address, $hostname_canonical, $jfw_username, $jfw_password );
     }
     elsif ( $action eq "back" ) {
         print "Not ready, closing the session.\n";
