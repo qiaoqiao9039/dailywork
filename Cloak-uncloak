@@ -32,6 +32,7 @@ use Readonly;
 use Getopt::Long;
 use Net::SSH::Expect;
 use Term::ANSIColor;
+use File::Temp;
 
 # Get options
 my $show_usage = qw{};
@@ -260,9 +261,11 @@ sub print_source_address {
 #
 sub print_policy {
     my ( $ssh, $policy, $hostname, $username, $password  ) = @_;
+    my $tmp = File::Temp->new(); 
     my $cmd = "show configuration firewall family inet filter block term 5 from source-address | match /";
     print "Source Address: \n";
-    my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd' 2>/dev/null;" );#try to use sshpass
+    my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd' 2>/dev/null;" ) > $tmp;#try to use sshpass
+    `cat $tmp`;
     #my @outputs = mute_execute_ssh( $ssh, "$cmd" ); # related with user, test cannot show, jucao works fine.
     #foreach my $line ( @outputs ) {
     #    print "$line\n";
@@ -732,10 +735,19 @@ else {
         print "> ";
         $source_address = <>;
         chomp $source_address;
-        delete_source_address( $ssh, $source_address, $hostname_canonical, $jfw_username, $jfw_password );
+        if ( ( $source_address =~ /^([0-9]{1,3}\.?){4}$/ ) | ( $source_address =~ /^([0-9]{1,3}\.?){4}\/32$/ ) | ( $source_address =~ /^([0-9]{1,3}\.?){4}\/24$/ ) | ( $source_address =~ /^([0-9]{1,3}\.?){4}\/18$/ ) ){
+            delete_source_address( $ssh, $source_address, $hostname_canonical, $jfw_username, $jfw_password );
+        }
+        elsif ( $source_address =~ /^([0-9]{1,3}\.?){4}\/0$/ ) {
+            print "Invalid IP\n";
+        }
+        else {
+            print "Invalid IP\n";
+        }
+    
     }
     elsif ( $action eq "back" ) {
-        print "Not ready, closing the session.\n";
+        print "Closing the session.\n";
         close_ssh($ssh);
         exit 0;
     }
