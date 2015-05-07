@@ -261,15 +261,16 @@ sub print_source_address {
 #
 sub print_policy {
     my ( $ssh, $policy, $hostname, $username, $password  ) = @_;
-    my $tmp = File::Temp->new(); 
+    #my $tmp = File::Temp->new(); 
     my $cmd = "show configuration firewall family inet filter block term 5 from source-address | match /";
     print "Source Address: \n";
-    my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd' 2>/dev/null;" ) > $tmp;#try to use sshpass
-    `cat $tmp`;
+    my @outputs = qx { sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com "$cmd" 2>/dev/null; } ;#try to use sshpass
+    #system("cat $tmp | sed 's/;//g'");
     #my @outputs = mute_execute_ssh( $ssh, "$cmd" ); # related with user, test cannot show, jucao works fine.
-    #foreach my $line ( @outputs ) {
-    #    print "$line\n";
-    #}
+    foreach my $line ( @outputs ) {
+        $line =~s/;//g;
+        print "$line";
+    }
 
 }
 
@@ -292,7 +293,12 @@ sub add_source_address {
     my $cmd5 = "show configuration firewall family inet filter block term 5 from source-address | match /";
     my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd3;$cmd4;' 2>/dev/null;" );#try to use sshpass
     print "Source Address: \n";
-    @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd5' 2>/dev/null;" );
+    @outputs = qx { sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com "$cmd5" 2>/dev/null; };
+    foreach my $line ( @outputs ) {
+        $line =~s/;//g;
+        print "$line";
+    }
+
 }
 
 #
@@ -314,7 +320,12 @@ sub delete_source_address {
     my $cmd5 = "show configuration firewall family inet filter block term 5 from source-address | match /";
     my @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd1;$cmd2;$cmd3;$cmd4;' 2>/dev/null;" );#try to use sshpass
     print "Source Address: \n";
-    @outputs = system ( "sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com '$cmd5' 2>/dev/null;" );
+    @outputs = qx { sshpass -p $password ssh $username\@slcd000jfw041.stubcorp.com "$cmd5" 2>/dev/null; };
+    foreach my $line ( @outputs ) {
+        $line =~s/;//g;
+        print "$line";
+    }
+
 }
 
 #
